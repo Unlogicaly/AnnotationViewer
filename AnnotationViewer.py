@@ -146,8 +146,9 @@ class AnnotationViewer(tk.Tk, ABC):
         if self.recycle_path is not None:
             self.logger.info(f"putting image {self.current_image_path} to recycle folder")
             (self.recycle_path / self.current_image_path.relative_to(self.images_path)).parent.mkdir(parents=True, exist_ok=True)
+            (self.recycle_path / self.current_annotation_path.relative_to(self.annotations_path)).parent.mkdir(parents=True,exist_ok=True)
             self.current_image_path.rename(self.recycle_path / self.current_image_path.relative_to(self.images_path))
-            self.current_annotation_path.rename(self.recycle_path / self.current_annotation_path.relative_to(self.images_path))
+            self.current_annotation_path.rename(self.recycle_path / self.current_annotation_path.relative_to(self.annotations_path))
         else:
             self.logger.info(f"deleting image {self.current_image_path}")
             self.current_image_path.unlink()
