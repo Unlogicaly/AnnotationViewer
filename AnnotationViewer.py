@@ -1,65 +1,15 @@
-from pathlib import Path
-import cv2
 import logging
-import tkinter as tk
-from PIL import Image, ImageTk
-import time
 import threading
+import time
+import tkinter as tk
+from abc import ABC, abstractmethod
+import cv2
+from PIL import Image, ImageTk
+from utils import iterate_images
 
 
-logging.basicConfig(level=logging.INFO)
-
-def iterate_files(root_path, extensions=None, recursive=False):
-
-    root_path = Path(root_path)
-
-    if extensions is None:
-        if recursive:
-            iterator = root_path.rglob('*')
-        else:
-            iterator = root_path.glob('*')
-        for item in iterator:
-            if item.is_file() or not recursive:
-                yield item
-        return
-
-    for extension in extensions:
-        if extension[0] == ".":
-            extension = extension[1:]
-
-        if recursive:
-            iterator = root_path.rglob(f"*.{extension}")
-        else:
-            iterator = root_path.glob(f"*.{extension}")
-
-        for item in iterator:
-            if item.is_file() or not recursive:
-                yield item
-
-    return
-
-
-def iterate_images(root_path, recursive=False):
-    extensions = ["jpg", "png", "jpeg", "tiff"]
-
-    return iterate_files(root_path, extensions, recursive)
-
-
-class AnnotationListWindow(tk.Toplevel):
-    def __init__(self, master):
-        super().__init__(master)
-        self.geometry("50x900")
-        self.annotations_list = tk.Text(self, height=900, width=200, bg="white", fg="black", wrap=tk.WORD)
-        self.annotations_list.pack(fill="both", expand=True)
-
-    def update_annotations(self, annotations):
-        self.annotations_list.delete(1.0, tk.END)
-        self.annotations_list.insert(tk.END, "\n".join(annotations), "annotations")
-        self.annotations_list.tag_configure("annotations", font=("verdana", 26, "bold"))
-
-
-class AnnotationViewer(tk.Tk):
-    def __init__(self, root_dir, recycle_path=None, cls2color=None, scroll_speed=0.5):
+class AnnotationViewer(tk.Tk, ABC):
+    def __init__(self, images_path, annotations_path, recycle_path=None, cls2color=None, scroll_speed=0.5):
         super().__init__()
 
         self.window_width = 1920
@@ -68,10 +18,15 @@ class AnnotationViewer(tk.Tk):
 
         self.logger = logging.getLogger(__name__)
 
-        self.root_dir = root_dir
+        self.images_path = images_path
 
-        self.images_paths = list(iterate_images(root_dir, recursive=True))
-        self.logger.info(f"found {len(self.images_paths)} images in {root_dir}")
+        if annotations_path is None:
+            self.annotations_path = self.images_path
+        else:
+            self.annotations_path = annotations_path
+
+        self.images_paths = list(iterate_images(images_path, recursive=True))
+        self.logger.info(f"found {len(self.images_paths)} images in {images_path}")
 
         self.current_index = -1
         self.current_image_path = None
@@ -97,8 +52,6 @@ class AnnotationViewer(tk.Tk):
         self.scroll_thread: threading.Thread = None
         self.scroll()
 
-        self.annotations_list = AnnotationListWindow(self)
-
         self.tkimage = None
 
         self.bind("<Left>", lambda _: self._move_iterator(-1))
@@ -116,39 +69,9 @@ class AnnotationViewer(tk.Tk):
 
         self.logger.info("finished initialization")
 
-        # self.pack()
-
-    def get_image(self):
-        self.current_annotation_path = self.current_image_path.parent / (self.current_image_path.stem + ".txt")
-        if not self.current_annotation_path.exists():
-            return False
-
-        self.current_image = cv2.cvtColor(cv2.imread(self.current_image_path), cv2.COLOR_BGR2RGB)
-        with open(self.current_annotation_path, "r") as annotation_file:
-            annotations = annotation_file.read().split("\n")
-
-        self.annotations_list.update_annotations(list(map(lambda annotation: annotation.split(" ")[0], annotations)))
-
-        self.logger.info(f"found {len(annotations)} annotations for image {self.current_image_path}")
-
-        image_h, image_w, _ = self.current_image.shape
-
-        for annotation in annotations:
-            if annotation == "":
-                continue
-            cls, x, y, w, h = map(float, annotation.split(" "))
-            cls = int(cls)
-            x1 = int((x - w / 2) * image_w)
-            y1 = int((y - h / 2) * image_h)
-            x2 = int((x + w / 2) * image_w)
-            y2 = int((y + h / 2) * image_h)
-
-            cv2.rectangle(self.current_image, (x1, y1), (x2, y2), self.cls2color[cls], 1)
-            cv2.putText(self.current_image, str(cls), (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.cls2color[cls], 2)
-
-        cv2.putText(self.current_image, str(self.current_image_path.relative_to(self.root_dir)), (0, 25), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
-
-        return True
+    @abstractmethod
+    def get_image_with_annotations(self):
+        pass
 
     def _scroll(self):
         while not self.quit:
@@ -209,7 +132,7 @@ class AnnotationViewer(tk.Tk):
 
             self.current_image_path = self.images_paths[self.current_index]
 
-            if not self.get_image():
+            if not self.get_image_with_annotations():
                 self.logger.warning(f"Annotations for image {self.current_image_path} not found")
                 shift = 1 if shift > 0 else -1
                 continue
@@ -222,9 +145,9 @@ class AnnotationViewer(tk.Tk):
 
         if self.recycle_path is not None:
             self.logger.info(f"putting image {self.current_image_path} to recycle folder")
-            (self.recycle_path/self.current_image_path.relative_to(self.root_dir)).parent.mkdir(parents=True, exist_ok=True)
-            self.current_image_path.rename(self.recycle_path/self.current_image_path.relative_to(self.root_dir))
-            self.current_annotation_path.rename(self.recycle_path/self.current_annotation_path.relative_to(self.root_dir))
+            (self.recycle_path / self.current_image_path.relative_to(self.images_path)).parent.mkdir(parents=True, exist_ok=True)
+            self.current_image_path.rename(self.recycle_path / self.current_image_path.relative_to(self.images_path))
+            self.current_annotation_path.rename(self.recycle_path / self.current_annotation_path.relative_to(self.images_path))
         else:
             self.logger.info(f"deleting image {self.current_image_path}")
             self.current_image_path.unlink()
@@ -235,21 +158,3 @@ class AnnotationViewer(tk.Tk):
     def destroy(self):
         self.quit = True
         super().destroy()
-
-
-if __name__ == "__main__":
-    root_dir = Path(r"D:\data\detection_optical\08_07_2025\recycled\cyclone")
-    recycle_path = Path(r"D:\data\detection_optical\08_07_2025\recycled")
-
-    # root = tk.Tk()
-    annotation_viewer = AnnotationViewer(
-        root_dir, recycle_path, {
-            0: (255, 180, 0),
-            1: (255, 0, 0),
-            2: (255, 100, 0),
-        }
-    )
-    annotation_viewer.logger.setLevel(logging.INFO)
-
-    annotation_viewer.mainloop()
-
