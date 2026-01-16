@@ -3,6 +3,8 @@ import logging
 import tkinter as tk
 import cv2
 from AnnotationViewer import AnnotationViewer
+from Visualizer import draw_bounding_box
+
 
 logging.basicConfig(level=logging.INFO)
 
@@ -15,7 +17,12 @@ class DetectionAnnotationViewer(AnnotationViewer):
         if not self.current_annotation_path.exists():
             return False
 
-        self.current_image = cv2.cvtColor(cv2.imread(self.current_image_path), cv2.COLOR_BGR2RGB)
+        try:
+            self.current_image = cv2.cvtColor(cv2.imread(self.current_image_path), cv2.COLOR_BGR2RGB)
+        except Exception as e:
+            self.logger.error(e)
+            return False
+
         with open(self.current_annotation_path, "r") as annotation_file:
             annotations = annotation_file.read().split("\n")
 
@@ -33,9 +40,14 @@ class DetectionAnnotationViewer(AnnotationViewer):
             x2 = int((x + w / 2) * image_w)
             y2 = int((y + h / 2) * image_h)
 
-            cv2.rectangle(self.current_image, (x1, y1), (x2, y2), self.cls2color[cls], 1)
-            cv2.putText(self.current_image, str(cls), (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.cls2color[cls],
-                        2)
+            # cv2.rectangle(self.current_image, (x1, y1), (x2, y2), self.cls2color[cls], 1)
+            # cv2.putText(self.current_image, str(cls), (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.cls2color[cls],
+            #             2)
+
+            draw_bounding_box(
+                self.current_image, x1, y1, x2, y2, self.cls2color[cls],
+                line_thickness=2 if self.scale < self.scale_threshold_to_change_boxes_thickness else 1
+            )
 
         cv2.putText(self.current_image, str(self.current_image_path.relative_to(self.images_path)), (0, 25),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)

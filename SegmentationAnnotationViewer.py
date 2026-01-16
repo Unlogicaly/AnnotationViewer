@@ -16,6 +16,8 @@ class SegmentationAnnotationViewer(AnnotationViewer):
         self.switch_mode_button = tk.Button(self, text="Switch mode", command=self.switch_mode)
         self.switch_mode_button.place(x=self.window_width - 100, y=20)
 
+        self.support_zoom = False
+
     def switch_mode(self):
         if self.mode == "merge":
             self.mode = "split"
